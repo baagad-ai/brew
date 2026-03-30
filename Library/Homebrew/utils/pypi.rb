@@ -434,7 +434,7 @@ module PyPI
     end
 
     odie <<~EOS unless non_pypi_resource_names.empty?
-      "#{formula.name}" contains non-PyPI resources: #{non_pypi_resource_names.join(", ")}
+      "#{formula.name}" contains non-PyPI resources: #{non_pypi_resource_names.sort.join(", ")}
       Please update the resources manually.
     EOS
 
