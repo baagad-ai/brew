@@ -288,17 +288,15 @@ window.__app = function () {
     );
   }
 
-  function generateTOC() {
-    if ($("#filecontents").length === 0) return;
-    var tags = buildTOCTags();
-    var selectors = buildTOCSelectors(tags);
-    var tocList = $('<ol class="top"></ol>');
-    var state = {
+  function initializeTOCState(tags, tocList) {
+    return {
       toc: tocList,
       curli: undefined,
       lastTag: parseInt(tags[0][1], 10),
     };
-    var counter = { value: 0 };
+  }
+
+  function appendTOCEntries(selectors, state, counter) {
     var show = false;
 
     $(selectors.join(", ")).each(function () {
@@ -307,70 +305,97 @@ window.__app = function () {
       ensureTOCElementId(this, counter);
       appendTOCEntry(state, this);
     });
+
+    return show;
+  }
+
+  function generateTOC() {
+    if ($("#filecontents").length === 0) return;
+    var tags = buildTOCTags();
+    var selectors = buildTOCSelectors(tags);
+    var tocList = $('<ol class="top"></ol>');
+    var state = initializeTOCState(tags, tocList);
+    var counter = { value: 0 };
+    var show = appendTOCEntries(selectors, state, counter);
+
     if (!show) return;
     renderTOC(tocList);
+  }
+
+  function consumePointerEvent(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function registerPointerCapture(resizer, eventName, callback) {
+    resizer.addEventListener(
+      eventName,
+      function (e) {
+        callback(e.pointerId);
+        consumePointerEvent(e);
+      },
+      false
+    );
+  }
+
+  function applyNavWidth(minimumNavWidth, width) {
+    $(".nav_wrap").css("width", Math.max(minimumNavWidth, width));
+  }
+
+  function registerNavPointerMove(resizer, minimumNavWidth) {
+    resizer.addEventListener(
+      "pointermove",
+      function (e) {
+        if ((e.buttons & 1) === 0) return;
+
+        sessionStorage.navWidth = e.pageX.toString();
+        applyNavWidth(minimumNavWidth, e.pageX);
+        consumePointerEvent(e);
+      },
+      false
+    );
+  }
+
+  function applyStoredNavWidth(minimumNavWidth) {
+    if (sessionStorage.navWidth) {
+      applyNavWidth(minimumNavWidth, parseInt(sessionStorage.navWidth, 10));
+    }
   }
 
   function navResizer() {
     const resizer = document.getElementById("resizer");
     const minimumNavWidth = 200;
 
-    function registerPointerCapture(eventName, callback) {
-      resizer.addEventListener(
-        eventName,
-        function (e) {
-          callback(e.pointerId);
-          consumePointerEvent(e);
-        },
-        false
-      );
-    }
-
-    function consumePointerEvent(e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-
-    function applyNavWidth(width) {
-      $(".nav_wrap").css("width", Math.max(minimumNavWidth, width));
-    }
-
-    registerPointerCapture("pointerdown", function (pointerId) {
+    registerPointerCapture(resizer, "pointerdown", function (pointerId) {
       resizer.setPointerCapture(pointerId);
     });
-    registerPointerCapture("pointerup", function (pointerId) {
+    registerPointerCapture(resizer, "pointerup", function (pointerId) {
       resizer.releasePointerCapture(pointerId);
     });
-    resizer.addEventListener(
-      "pointermove",
-      function (e) {
-        if ((e.buttons & 1) === 0) {
-          return;
-        }
+    registerNavPointerMove(resizer, minimumNavWidth);
+    applyStoredNavWidth(minimumNavWidth);
+  }
 
-        sessionStorage.navWidth = e.pageX.toString();
-        applyNavWidth(e.pageX);
-        consumePointerEvent(e);
-      },
-      false
-    );
+  function postExpandMessage(path) {
+    var opts = { action: "expand", path: path };
+    document.getElementById("nav").contentWindow.postMessage(opts, "*");
+  }
 
-    if (sessionStorage.navWidth) {
-      applyNavWidth(parseInt(sessionStorage.navWidth, 10));
+  function scheduleNavExpand(path) {
+    var done = false,
+      timer = setTimeout(postMessage, 500);
+
+    function postMessage() {
+      if (done) return;
+      clearTimeout(timer);
+      postExpandMessage(path);
+      done = true;
     }
   }
 
   function navExpander() {
     if (typeof pathId === "undefined") return;
-    var done = false,
-      timer = setTimeout(postMessage, 500);
-    function postMessage() {
-      if (done) return;
-      clearTimeout(timer);
-      var opts = { action: "expand", path: pathId };
-      document.getElementById("nav").contentWindow.postMessage(opts, "*");
-      done = true;
-    }
+    scheduleNavExpand(pathId);
   }
 
   function mainFocus() {
@@ -442,17 +467,24 @@ function replaceMainContent(doc) {
   document.title = doc.head.querySelector("title").innerText;
 }
 
-function refreshHeadScripts(doc) {
-  forEachInlineJavaScript(document.head, (script) => {
+function removeInlineJavaScript(root) {
+  forEachInlineJavaScript(root, (script) => {
     script.remove();
   });
+}
 
-  forEachInlineJavaScript(doc.head, (script) => {
-    const newScript = document.createElement("script");
-    newScript.type = "text/javascript";
-    newScript.textContent = script.textContent;
-    document.head.appendChild(newScript);
+function appendInlineJavaScript(sourceRoot, targetRoot) {
+  forEachInlineJavaScript(sourceRoot, (script) => {
+    const inlineScript = document.createElement("script");
+    inlineScript.type = "text/javascript";
+    inlineScript.textContent = script.textContent;
+    targetRoot.appendChild(inlineScript);
   });
+}
+
+function refreshHeadScripts(doc) {
+  removeInlineJavaScript(document.head);
+  appendInlineJavaScript(doc.head, document.head);
 }
 
 function captureClassListLink() {
@@ -486,12 +518,20 @@ async function handleNavigate(url) {
   history.pushState({}, document.title, url);
 }
 
+function isNavigateMessage(messageData) {
+  return messageData.action === "navigate";
+}
+
+async function handleMessage(messageData) {
+  if (isNavigateMessage(messageData)) {
+    await handleNavigate(messageData.url);
+  }
+}
+
 window.addEventListener(
   "message",
   async (e) => {
-    if (e.data.action === "navigate") {
-      await handleNavigate(e.data.url);
-    }
+    await handleMessage(e.data);
   },
   false
 );
