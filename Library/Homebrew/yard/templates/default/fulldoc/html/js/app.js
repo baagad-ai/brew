@@ -1,12 +1,14 @@
 window.__app = function () {
-  var localStorage = {},
-    sessionStorage = {};
-  try {
-    localStorage = window.localStorage;
-  } catch (e) {}
-  try {
-    sessionStorage = window.sessionStorage;
-  } catch (e) {}
+  function safeStorage(storageName) {
+    try {
+      return window[storageName];
+    } catch (e) {
+      return {};
+    }
+  }
+
+  var localStorage = safeStorage("localStorage"),
+    sessionStorage = safeStorage("sessionStorage");
 
   function createSourceLinks() {
     $(".method_details_list .source_code").before(
@@ -298,6 +300,17 @@ window.__app = function () {
     const resizer = document.getElementById("resizer");
     const minimumNavWidth = 200;
 
+    function registerPointerCapture(eventName, callback) {
+      resizer.addEventListener(
+        eventName,
+        function (e) {
+          callback(e.pointerId);
+          consumePointerEvent(e);
+        },
+        false
+      );
+    }
+
     function consumePointerEvent(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -307,22 +320,12 @@ window.__app = function () {
       $(".nav_wrap").css("width", Math.max(minimumNavWidth, width));
     }
 
-    resizer.addEventListener(
-      "pointerdown",
-      function (e) {
-        resizer.setPointerCapture(e.pointerId);
-        consumePointerEvent(e);
-      },
-      false
-    );
-    resizer.addEventListener(
-      "pointerup",
-      function (e) {
-        resizer.releasePointerCapture(e.pointerId);
-        consumePointerEvent(e);
-      },
-      false
-    );
+    registerPointerCapture("pointerdown", function (pointerId) {
+      resizer.setPointerCapture(pointerId);
+    });
+    registerPointerCapture("pointerup", function (pointerId) {
+      resizer.releasePointerCapture(pointerId);
+    });
     resizer.addEventListener(
       "pointermove",
       function (e) {
@@ -400,6 +403,24 @@ function isInlineJavaScript(script) {
   );
 }
 
+function forEachInlineJavaScript(root, callback) {
+  root.querySelectorAll("script").forEach((script) => {
+    if (isInlineJavaScript(script)) {
+      callback(script);
+    }
+  });
+}
+
+function parseHtmlDocument(text) {
+  const parser = new DOMParser();
+  return parser.parseFromString(text, "text/html");
+}
+
+async function fetchHtmlDocument(url) {
+  const response = await fetch(url);
+  return parseHtmlDocument(await response.text());
+}
+
 function replaceMainContent(doc) {
   const content = doc.querySelector("#main").innerHTML;
   document.querySelector("#main").innerHTML = content;
@@ -407,24 +428,31 @@ function replaceMainContent(doc) {
 }
 
 function refreshHeadScripts(doc) {
-  document.head.querySelectorAll("script").forEach((script) => {
-    if (isInlineJavaScript(script)) {
-      script.remove();
-    }
+  forEachInlineJavaScript(document.head, (script) => {
+    script.remove();
   });
 
-  doc.head.querySelectorAll("script").forEach((script) => {
-    if (isInlineJavaScript(script)) {
-      const newScript = document.createElement("script");
-      newScript.type = "text/javascript";
-      newScript.textContent = script.textContent;
-      document.head.appendChild(newScript);
-    }
+  forEachInlineJavaScript(doc.head, (script) => {
+    const newScript = document.createElement("script");
+    newScript.type = "text/javascript";
+    newScript.textContent = script.textContent;
+    document.head.appendChild(newScript);
   });
+}
+
+function captureClassListLink() {
+  return document.getElementById("class_list_link").classList;
 }
 
 function restoreClassList(classListLink) {
   document.getElementById("class_list_link").classList = classListLink;
+}
+
+function applyNavigationDocument(doc, classListLink) {
+  replaceMainContent(doc);
+  refreshHeadScripts(doc);
+  window.__app();
+  restoreClassList(classListLink);
 }
 
 function scrollToDecodedHash(rawUrl) {
@@ -436,16 +464,9 @@ function scrollToDecodedHash(rawUrl) {
 }
 
 async function handleNavigate(url) {
-  const response = await fetch(url);
-  const text = await response.text();
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(text, "text/html");
-  const classListLink = document.getElementById("class_list_link").classList;
-
-  replaceMainContent(doc);
-  refreshHeadScripts(doc);
-  window.__app();
-  restoreClassList(classListLink);
+  const doc = await fetchHtmlDocument(url);
+  const classListLink = captureClassListLink();
+  applyNavigationDocument(doc, classListLink);
   scrollToDecodedHash(url);
   history.pushState({}, document.title, url);
 }
