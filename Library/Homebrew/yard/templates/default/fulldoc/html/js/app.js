@@ -10,11 +10,23 @@ window.__app = function () {
   var localStorage = safeStorage("localStorage"),
     sessionStorage = safeStorage("sessionStorage");
 
+  function bindToggleActions(selector, onFirstToggle, onSecondToggle) {
+    $(selector).toggle(
+      function () {
+        onFirstToggle.call(this);
+      },
+      function () {
+        onSecondToggle.call(this);
+      }
+    );
+  }
+
   function createSourceLinks() {
     $(".method_details_list .source_code").before(
       "<span class='showSource'>[<a href='#' class='toggleSource'>View source</a>]</span>"
     );
-    $(".toggleSource").toggle(
+    bindToggleActions(
+      ".toggleSource",
       function () {
         $(this).parent().nextAll(".source_code").slideDown(100);
         $(this).text("Hide source");
@@ -29,7 +41,8 @@ window.__app = function () {
   function createDefineLinks() {
     var tHeight = 0;
     $(".defines").after(" <a href='#' class='toggleDefines'>more...</a>");
-    $(".toggleDefines").toggle(
+    bindToggleActions(
+      ".toggleDefines",
       function () {
         tHeight = $(this).parent().prev().height();
         $(this).prev().css("display", "inline");
@@ -46,7 +59,8 @@ window.__app = function () {
 
   function createFullTreeLinks() {
     var tHeight = 0;
-    $(".inheritanceTree").toggle(
+    bindToggleActions(
+      ".inheritanceTree",
       function () {
         tHeight = $(this).parent().prev().height();
         $(this).parent().toggleClass("showAll");
@@ -259,7 +273,8 @@ window.__app = function () {
       '<div id="toc"><p class="title hide_toc"><a href="#"><strong>Table of Contents</strong></a></p></div>';
     $("#content").prepend(html);
     $("#toc").append(tocList);
-    $("#toc .hide_toc").toggle(
+    bindToggleActions(
+      "#toc .hide_toc",
       function () {
         $("#toc .top").slideUp("fast");
         $("#toc").toggleClass("hidden");
