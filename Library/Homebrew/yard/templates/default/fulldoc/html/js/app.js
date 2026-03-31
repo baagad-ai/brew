@@ -119,29 +119,61 @@ function initializeSummaryToggle(
   expandedClass,
   buildCompactList
 ) {
-  $(toggleSelector).click(function (e) {
-    e.preventDefault();
-    localStorage.summaryCollapsed = $(this).text();
-    $(toggleSelector).each(function () {
-      $(this).text($(this).text() == "collapse" ? "expand" : "collapse");
-      var next = $(this).parent().parent().nextAll(summarySelector).first();
-      if (next.hasClass("compact")) {
-        next.toggle();
-        next.nextAll(summarySelector).first().toggle();
-      } else if (next.hasClass(expandedClass)) {
-        var list = buildCompactList(next);
-        next.before(list);
-        next.toggle();
-      }
-    });
-    return false;
-  });
+  bindSummaryToggleClick(
+    localStorage,
+    toggleSelector,
+    summarySelector,
+    expandedClass,
+    buildCompactList
+  );
 
   if (localStorage.summaryCollapsed == "collapse") {
     $(toggleSelector).first().click();
   } else {
     localStorage.summaryCollapsed = "expand";
   }
+}
+
+function toggleSummaryLabel(element) {
+  element.text(element.text() == "collapse" ? "expand" : "collapse");
+}
+
+function findSummaryElement(element, summarySelector) {
+  return element.parent().parent().nextAll(summarySelector).first();
+}
+
+function toggleSummaryElements(next, summarySelector, expandedClass, buildCompactList) {
+  if (next.hasClass("compact")) {
+    next.toggle();
+    next.nextAll(summarySelector).first().toggle();
+    return;
+  }
+
+  if (next.hasClass(expandedClass)) {
+    var list = buildCompactList(next);
+    next.before(list);
+    next.toggle();
+  }
+}
+
+function bindSummaryToggleClick(
+  localStorage,
+  toggleSelector,
+  summarySelector,
+  expandedClass,
+  buildCompactList
+) {
+  $(toggleSelector).click(function (e) {
+    e.preventDefault();
+    localStorage.summaryCollapsed = $(this).text();
+    $(toggleSelector).each(function () {
+      var toggleElement = $(this);
+      toggleSummaryLabel(toggleElement);
+      var next = findSummaryElement(toggleElement, summarySelector);
+      toggleSummaryElements(next, summarySelector, expandedClass, buildCompactList);
+    });
+    return false;
+  });
 }
 
 function buildCompactSummaryList(next) {
@@ -275,16 +307,22 @@ function renderTOC(tocList) {
   bindToggleActions(
     "#toc .hide_toc",
     function () {
-      $("#toc .top").slideUp("fast");
-      $("#toc").toggleClass("hidden");
-      $("#toc .title small").toggle();
+      setTOCVisibility(false);
     },
     function () {
-      $("#toc .top").slideDown("fast");
-      $("#toc").toggleClass("hidden");
-      $("#toc .title small").toggle();
+      setTOCVisibility(true);
     }
   );
+}
+
+function setTOCVisibility(show) {
+  if (show) {
+    $("#toc .top").slideDown("fast");
+  } else {
+    $("#toc .top").slideUp("fast");
+  }
+  $("#toc").toggleClass("hidden");
+  $("#toc .title small").toggle();
 }
 
 function initializeTOCState(tags, tocList) {
@@ -525,15 +563,18 @@ function isNavigateMessage(messageData) {
 }
 
 async function handleMessage(messageData) {
-  if (isNavigateMessage(messageData)) {
-    await handleNavigate(messageData.url);
-  }
+  if (!isNavigateMessage(messageData)) return;
+  await handleNavigate(messageData.url);
 }
 
-window.addEventListener(
-  "message",
-  async (e) => {
-    await handleMessage(e.data);
-  },
-  false
-);
+function registerNavigationMessageHandler() {
+  window.addEventListener(
+    "message",
+    async (e) => {
+      await handleMessage(e.data);
+    },
+    false
+  );
+}
+
+registerNavigationMessageHandler();
